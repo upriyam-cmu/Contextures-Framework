@@ -9,12 +9,12 @@ from __future__ import annotations
 import pandas as pd
 from abc import ABC, abstractmethod
 
-class BaseTranform(ABC):
+class BaseTransform(ABC):
     def fit_transform(self, X: pd.DataFrame) -> pd.DataFrame:
         return self.fit(X).transform(X)
     
     @abstractmethod
-    def fit(self, X: pd.DataFrame) -> BaseTranform:
+    def fit(self, X: pd.DataFrame) -> BaseTransform:
         ...
     
     @abstractmethod
