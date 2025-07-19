@@ -2,7 +2,9 @@ import torch
 from torch import nn
 from typing import Sequence, Union, List, Literal
 from torch.nn import functional as F
+from utils.registry import register_loss
 
+@register_loss('EVDRQ')
 class EVDRQ(nn.Module):
     """
     RQ (Rayleigh-Quotient) loss implementation. 

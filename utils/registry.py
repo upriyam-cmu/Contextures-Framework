@@ -25,7 +25,7 @@ def _get(category: str, name: str) -> Any:
     except KeyError as err:
         raise KeyError(f"{category} '{name}' is not registered") from err
 
-# transforms
+# feature transforms
 def register_transform(name: str) -> Callable[[Type], Type]:
     return _register('transform', name)
 
@@ -44,6 +44,27 @@ def get_encoder(name: str):
 
 def list_encoders() -> list[str]:
     return list(_REGISTRIES['encoder'])
+
+# contexts
+def register_context(name: str):
+    return _register('context', name)
+
+def get_context(name: str):
+    return _get('context', name)
+
+def list_contexts() -> list[str]:
+    return list(_REGISTRIES['context'])
+
+
+# losses
+def register_loss(name: str):
+    return _register('loss', name)
+
+def get_loss(name: str):
+    return _get('loss', name)
+
+def list_losses() -> list[str]:
+    return list(_REGISTRIES['loss'])
 
 try:
     import encoders
