@@ -3,6 +3,9 @@ from torch import nn
 from typing import Sequence, Union, List, Literal
 from torch.nn import functional as F
 
+from utils.registry import register_loss
+
+@register_loss('EVDLoRA')
 class EVDLoRA(nn.Module):
     """
     LoRA (Low-Rank Approximation) loss implementation.
