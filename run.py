@@ -6,9 +6,11 @@ import json
 import yaml
 from tqdm import tqdm
 from easydict import EasyDict as edict
+from torch.utils.data import DataLoader
 from utils.registry import get_encoder, get_loss, get_context
 
 from trainer.trainer import SVDTrainer
+from downstream.linear_probe import train_linear_probe, extract_features
 
 def load_config(config_path):
     with open(config_path, 'r') as file:
@@ -62,8 +64,8 @@ def main(config):
     optimizer = torch.optim.Adam([x_encoder.parameters(), a_encoder.parameters()], lr=config.train.lr)
 
     # Loss function
-    loss_class = get_loss(config.loss.name)
-    criterion = loss_class(**config.loss.parameters)
+    loss_class = get_loss(config.losses.name)
+    criterion = loss_class(**config.losses.parameters)
     
     # Trainer: use SVDTrainer for testing
     trainer = SVDTrainer(x_encoder, a_encoder, 
@@ -74,13 +76,45 @@ def main(config):
     trainer.train()
     trainer.save_model(model_save_dir)
 
-    # Test downstream perforamnce
+    # Test downstream performance
     """
     TODO for Hugo: Add linear probe function at here and downstream.linear_probe.py
     1. Iteratre train dataset and use the x_encoder to extract train features
     2. Train a linear probe on top of it
     3. Test the performance on val/test set
     """
+    print("\n=== Linear Probe Evaluation ===")
+    
+    # 1. Extract features from train dataset using x_encoder
+    print("Extracting features from training data...")
+    train_features, train_targets = extract_features(x_encoder, train_loader, device=device)
+    
+    # 2. Train linear probe on extracted features
+    print("Training linear probe...")
+    probe, results = train_linear_probe(
+        features=train_features,
+        targets=train_targets,
+        task_type="classification",
+        test_size=0.2,
+        val_size=0.2,
+        max_epochs=50,
+        batch_size=128,
+        verbose=False
+    )
+    
+    # 3. Test performance on val/test set
+    print("Linear Probe Results:")
+    print(f"  Test Accuracy: {results['test_metrics']['accuracy']:.4f}")
+    print(f"  Train size: {results['data_splits']['train_size']}")
+    print(f"  Val size: {results['data_splits']['val_size']}")
+    print(f"  Test size: {results['data_splits']['test_size']}")
+    print(f"  Epochs trained: {results['train_history']['epochs_trained']}")
+    
+    # Save probe results
+    probe_results_path = os.path.join(results_dir, "linear_probe_results.json")
+    with open(probe_results_path, 'w') as f:
+        json.dump(results, f, indent=2)
+    print(f"Linear probe results saved to: {probe_results_path}")
 
 
 if __name__ == '__main__':
