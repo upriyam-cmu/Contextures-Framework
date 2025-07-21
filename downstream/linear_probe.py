@@ -23,6 +23,7 @@ import warnings
 
 from utils.registry import register_loss
 from utils.types import DataFrame, ArrayLike
+from utils.registry import get_loss
 
 
 class LinearProbe(nn.Module):
@@ -341,28 +342,20 @@ class LinearProbe(nn.Module):
             raise TypeError(f"Unsupported data type: {type(data)}")
 
 
-def train_linear_probe(features: Union[torch.Tensor, ArrayLike, DataFrame],
-                      targets: Union[torch.Tensor, ArrayLike, DataFrame],
-                      task_type: Literal["classification", "regression"] = "classification",
-                      test_size: float = 0.2,
-                      val_size: float = 0.2,
-                      random_state: int = 42,
-                      verbose: bool = True,
-                      **probe_kwargs) -> Tuple[LinearProbe, Dict[str, Any]]:
+def train_linear_probe(
+    features: Union[torch.Tensor, ArrayLike, DataFrame],
+    targets: Union[torch.Tensor, ArrayLike, DataFrame],
+    task_type: Literal["classification", "regression"] = "classification",
+    test_size: float = 0.2,
+    val_size: float = 0.2,
+    random_state: int = 42,
+    X_train=None, y_train=None, X_val=None, y_val=None, X_test=None, y_test=None,
+    **probe_kwargs
+) -> Tuple[LinearProbe, Dict[str, Any]]:
     """
     Train a linear probe on extracted features.
-    
-    Args:
-        features: Extracted features from the encoder
-        targets: Target values for the downstream task
-        task_type: Type of downstream task
-        test_size: Fraction of data to use for testing
-        val_size: Fraction of remaining data to use for validation
-        random_state: Random seed for reproducibility
-        **probe_kwargs: Additional arguments to pass to LinearProbe
-        
-    Returns:
-        Tuple of (trained_probe, evaluation_results)
+    If X_train/y_train/X_val/y_val/X_test/y_test are provided, use them directly (no splitting).
+    Otherwise, split features/targets internally.
     """
     # Convert to numpy for splitting
     if isinstance(features, torch.Tensor):
@@ -393,30 +386,35 @@ def train_linear_probe(features: Union[torch.Tensor, ArrayLike, DataFrame],
         num_classes = len(np.unique(targets_np))
         probe_kwargs["num_classes"] = num_classes
     
-    # Split data
-    np.random.seed(random_state)
-    n_samples = len(features_np)
-    indices = np.random.permutation(n_samples)
-    
-    test_split = int(n_samples * (1 - test_size))
-    val_split = int(test_split * (1 - val_size))
-    
-    train_indices = indices[:val_split]
-    val_indices = indices[val_split:test_split]
-    test_indices = indices[test_split:]
-    
-    X_train = features_np[train_indices]
-    y_train = targets_np[train_indices]
-    X_val = features_np[val_indices]
-    y_val = targets_np[val_indices]
-    X_test = features_np[test_indices]
-    y_test = targets_np[test_indices]
+    # Use provided splits if available
+    if X_train is not None and y_train is not None and X_test is not None and y_test is not None:
+        # Optionally use val if provided
+        if X_val is not None and y_val is not None:
+            pass
+        else:
+            X_val, y_val = None, None
+    else:
+        # Split data
+        np.random.seed(random_state)
+        n_samples = len(features_np)
+        indices = np.random.permutation(n_samples)
+        test_split = int(n_samples * (1 - test_size))
+        val_split = int(test_split * (1 - val_size))
+        train_indices = indices[:val_split]
+        val_indices = indices[val_split:test_split]
+        test_indices = indices[test_split:]
+        X_train = features_np[train_indices]
+        y_train = targets_np[train_indices]
+        X_val = features_np[val_indices]
+        y_val = targets_np[val_indices]
+        X_test = features_np[test_indices]
+        y_test = targets_np[test_indices]
     
     # Initialize and train probe
     probe = LinearProbe(input_dim=input_dim, task_type=task_type, **probe_kwargs)
     
     # Train the probe
-    train_history = probe.fit(X_train, y_train, X_val, y_val, verbose=verbose)
+    train_history = probe.fit(X_train, y_train, X_val, y_val, verbose=probe_kwargs.get('verbose', True))
     
     # Evaluate on test set
     test_metrics = probe.evaluate(X_test, y_test)
@@ -427,7 +425,7 @@ def train_linear_probe(features: Union[torch.Tensor, ArrayLike, DataFrame],
         "test_metrics": test_metrics,
         "data_splits": {
             "train_size": len(X_train),
-            "val_size": len(X_val),
+            "val_size": len(X_val) if X_val is not None else 0,
             "test_size": len(X_test)
         }
     }
@@ -486,23 +484,24 @@ def extract_features(encoder: nn.Module,
 class LinearProbeLoss(nn.Module):
     """
     Linear probe loss for integration with the registry system.
-    
-    This is a wrapper around LinearProbe for integration with the existing
-    loss registry system.
+    This is a wrapper around LinearProbe for integration with the existing loss registry system.
+    Optionally, you can use a custom loss from the losses folder by passing custom_loss_name and custom_loss_params.
     """
-    
     def __init__(self, 
                  input_dim: int,
                  task_type: Literal["classification", "regression"] = "classification",
                  num_classes: Optional[int] = None,
+                 custom_loss_name: str = None,
+                 custom_loss_params: dict = None,
                  **kwargs):
         """
         Initialize linear probe loss.
-        
         Args:
             input_dim: Dimension of input features
             task_type: Type of downstream task
             num_classes: Number of classes for classification
+            custom_loss_name: Name of custom loss from losses folder (optional)
+            custom_loss_params: Parameters for custom loss (optional)
             **kwargs: Additional arguments for LinearProbe
         """
         super().__init__()
@@ -512,26 +511,30 @@ class LinearProbeLoss(nn.Module):
             num_classes=num_classes,
             **kwargs
         )
+        self.custom_loss = None
+        if custom_loss_name is not None:
+            loss_class = get_loss(custom_loss_name)
+            params = custom_loss_params or {}
+            self.custom_loss = loss_class(**params)
     
     def forward(self, features: torch.Tensor, targets: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, Any]]:
         """
         Forward pass for linear probe training.
-        
+        If a custom loss is provided, use it. Otherwise, use the default probe loss.
         Args:
             features: Input features
             targets: Target values
-            
         Returns:
             Tuple of (loss, metrics_dict)
         """
-        # This is a placeholder - in practice, you'd want to train the probe
-        # and return the loss. For now, we'll return a dummy loss.
+        if self.custom_loss is not None:
+            # Assume custom loss takes (features, targets) and returns (loss, metrics)
+            return self.custom_loss(features, targets)
+        # Default: dummy loss (for registry compatibility)
         dummy_loss = torch.tensor(0.0, device=features.device, requires_grad=True)
-        
         metrics = {
             "probe_initialized": True,
             "input_dim": self.probe.input_dim,
             "task_type": self.probe.task_type
         }
-        
         return dummy_loss, metrics
