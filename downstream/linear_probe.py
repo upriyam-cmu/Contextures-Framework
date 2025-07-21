@@ -540,6 +540,8 @@
 #         return dummy_loss, metrics
 # downstream/linear_probe.py
 
+# downstream/linear_probe.py
+
 """
 Linear probe for downstream evaluation of self-supervised learning representations.
 
@@ -578,18 +580,18 @@ class LinearProbe:
             self.model = Ridge(alpha=weight_decay, max_iter=max_iter, **kwargs)
         self._is_fitted = False
 
-    def fit(self, X_train, y_train, X_val=None, y_val=None, verbose=True):
+    def fit(self, X_train, y_train, X_val=None, y_val=None, verbose=True) -> Dict[str, Any]:
         self.model.fit(X_train, y_train)
         self._is_fitted = True
         # No explicit validation/early stopping, but keep API for compatibility
         return {"epochs_trained": 1, "final_train_loss": None}
 
-    def predict(self, X):
+    def predict(self, X) -> np.ndarray:
         if not self._is_fitted:
             raise RuntimeError("Linear probe must be fitted before making predictions")
         return self.model.predict(X)
 
-    def predict_proba(self, X):
+    def predict_proba(self, X) -> np.ndarray:
         if self.task_type != "classification":
             raise ValueError("predict_proba is only available for classification tasks")
         if not self._is_fitted:
@@ -710,4 +712,3 @@ def extract_features(encoder: torch.nn.Module, dataloader, device: str = "auto")
     features = torch.cat(features_list, dim=0)
     targets = torch.cat(targets_list, dim=0) if targets_list else None
     return features, targets
-
