@@ -130,6 +130,7 @@ def train_knn_probe(
 
 
 def extract_features(encoder: torch.nn.Module, dataloader, device: str = "auto") -> Tuple[torch.Tensor, torch.Tensor]:
+    # Run the trained encoder φ in eval mode to extract representations for downstream evaluation (e.g., KNN probe)
     if device == "auto":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
