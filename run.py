@@ -24,7 +24,7 @@ from scripts.loader import load_dataset
 from feature_transforms.pipeline import ColumnPipeline
 from utils.registry import get_encoder, get_loss, get_context
 from trainer.trainer import SVDTrainer
-from downstream.linear_probe import train_linear_probe, extract_features
+from downstream import run_probe
 
 # Helper functions
 def load_cfg(path: str | Path) -> edict:
@@ -139,17 +139,17 @@ def main(cfg: edict) -> None:
             
         f_tr, f_va, f_te = feats(Xtr), feats(Xva), feats(Xte)
 
-        probe, probe_res = train_linear_probe(
-            features      = f_tr,
-            targets       = ytr,
-            task_type     = meta['target_type'],
-            X_val         = f_va, y_val = yva,
-            X_test        = f_te, y_test= yte,
-            max_epochs    = int(cfg['probe']['max_epochs']),
-            batch_size    = int(cfg['probe']['batch_size']),
-            early_stopping_patience = int(cfg['probe']['early_stopping_patience']),
-            lr            = float(cfg['probe']['lr']),
-            weight_decay  = float(cfg['probe']['weight_decay'])
+        probe_kind = cfg['probe']['kind']
+        probe_params = cfg['probe'].get('params', {})
+
+        probe, probe_res = run_probe(
+            kind        = probe_kind,
+            features    = f_tr,
+            targets     = ytr,
+            task_type   = meta['target_type'],
+            X_val       = f_va, y_val = yva,
+            X_test      = f_te, y_test = yte,
+            **probe_params # defined in config
         )
 
         # summary
