@@ -103,39 +103,27 @@ class SCARF:
     def _transform_multiple(self, x: Tensor) -> Tensor:
         """
         Apply SCARF corruption to input features.
-        
         Args:
             x: Input tensor of shape (batch_size, num_features)
-            
         Returns:
             corrupted_x: Tensor of shape (batch_size, num_contexts, num_features)
         """
         batch_size, num_features = x.size()
-        
-        # Initialize output tensor
-        x_corrupted = torch.zeros(batch_size, self.num_contexts, num_features, device=x.device)
-        
-        # Generate num_contexts different corrupted versions
-        for context_idx in range(self.num_contexts):
-            # Create corruption mask for this context - corruption_rate of entries will be 1
-            corruption_mask = torch.rand_like(x, device=x.device) < self.corruption_rate
-            
-            # Sample random values based on the distribution
-            if self.distribution in ['uniform', 'gaussian']:
-                x_random = self.marginals.sample(torch.Size((batch_size,))).to(x.device)
-            elif self.distribution == 'bimodal':
-                x_random_low = self.marginals_low.sample(torch.Size((batch_size,))).to(x.device)
-                x_random_high = self.marginals_high.sample(torch.Size((batch_size,))).to(x.device)
-                # Randomly choose between low and high modes
-                mode_choice = torch.rand(batch_size, device=x.device) > 0.5
-                x_random = torch.where(mode_choice.unsqueeze(1), x_random_low, x_random_high)
-            
-            # Apply corruption: replace features where corruption_mask is True
-            x_corrupted_context = torch.where(corruption_mask, x_random, x)
-            
-            # Store in the output tensor
-            x_corrupted[:, context_idx, :] = x_corrupted_context
-        
+        r = self.num_contexts
+        # Create corruption mask for all r contexts in parallel
+        corruption_mask = (torch.rand(batch_size, r, num_features, device=x.device) < self.corruption_rate)
+        # Sample random values for all r contexts in parallel
+        if self.distribution in ['uniform', 'gaussian']:
+            # marginals.sample((batch_size, r)) returns (batch_size, r, num_features)
+            x_random = self.marginals.sample(torch.Size((batch_size, r))).to(x.device)
+        elif self.distribution == 'bimodal':
+            x_random_low = self.marginals_low.sample(torch.Size((batch_size, r))).to(x.device)
+            x_random_high = self.marginals_high.sample(torch.Size((batch_size, r))).to(x.device)
+            mode_choice = torch.rand(batch_size, r, device=x.device) > 0.5
+            mode_choice = mode_choice.unsqueeze(-1).expand(-1, -1, num_features)
+            x_random = torch.where(mode_choice, x_random_low, x_random_high)
+        # Expand x to (batch_size, r, num_features)
+        x_expanded = x.unsqueeze(1).expand(-1, r, -1)
+        # Apply corruption mask
+        x_corrupted = torch.where(corruption_mask, x_random, x_expanded)
         return x_corrupted
-
-        
