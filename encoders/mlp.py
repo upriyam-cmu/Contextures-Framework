@@ -68,7 +68,7 @@ class MLPEncoder(nn.Module):
         for i in range(len(dims) - 1):
             in_d, out_d = dims[i], dims[i + 1]
 
-            fc = nn.Linear(in_d, out_d)
+            fc = nn.Linear(in_d, out_d, bias = False)
 
             # last layer: no BN / activation / dropout
             if i == len(dims) - 2:
@@ -98,4 +98,14 @@ class MLPEncoder(nn.Module):
             x = torch.as_tensor(x, dtype = torch.float32)
         
         x = x.to(next(self.parameters()).device)
-        return self.net(x)
+
+        orig_shape = x.shape
+        if x.dim() > 2:
+            x = x.reshape(-1, orig_shape[-1])
+
+        x = self.net(x)
+
+        if len(orig_shape) > 2:
+            x = x.view(*orig_shape[:-1], self.output_dim)
+
+        return x

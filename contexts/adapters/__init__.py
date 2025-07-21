@@ -1,4 +1,4 @@
-# adapters/__init__.py
+# contexts/adapters/__init__.py
 
 """
 Adapters convert one context type to another

@@ -1,124 +1,175 @@
 # -*- coding: utf-8 -*-
-import os, sys
-import numpy as np
-import torch
-import json
-import yaml
-from tqdm import tqdm
-from easydict import EasyDict as edict
-from torch.utils.data import DataLoader
-from utils.registry import get_encoder, get_loss, get_context
+'''
+Usage:
+$ python run.py
+$ python run.py config=my.yaml
+'''
 
+from __future__ import annotations
+import os, sys, json, argparse
+from pathlib import Path
+from typing import Tuple, Dict, Any
+
+import numpy as np
+import pandas as pd
+import torch
+from torch.utils.data import DataLoader, TensorDataset
+
+import yaml
+from yaml import safe_load
+from easydict import EasyDict as edict
+from sklearn.preprocessing import LabelEncoder
+
+from scripts.loader import load_dataset
+from feature_transforms.pipeline import ColumnPipeline
+from utils.registry import get_encoder, get_loss, get_context
 from trainer.trainer import SVDTrainer
 from downstream.linear_probe import train_linear_probe, extract_features
 
-def load_config(config_path):
-    with open(config_path, 'r') as file:
-        config = yaml.safe_load(file)
-    return edict(config)
-
-def main(config):
-    # Global setting
-    torch.manual_seed(config.global.seed)
-    np.random.seed(config.global.seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # Create directories
-    results_dir = config.global.results_dir
-    model_save_dir = os.path.join(results_dir, "models")
-    os.makedirs(model_save_dir, exist_ok=True)
-    
-    # Load dataset 
-    """
-    TODO for Arnav: Load cls42/cls56 datasets using existing splits (train/val/test) 
-    The data format should be in pandas so that we can apply feature transformation later
-    """
-
-    # Feature transformation
-    """
-    TODO for Arnav: Apply feature transformation pipeline to inputs x
-    At this stage, we want to have a pytorch and dataframe dataset, e.g. TabularDataset in https://github.com/RuntianZ/TabularRL/blob/main/framework/dataset.py
-    """
-    train_df, train_dataset = None, None
-    val_df, val_dataset = None, None
-    test_df, test_dataset = None, None
-
-    # Get contexts
-    """
-    TODO for Hugo: finish transform_multiple function in scarf.py
-    """
-    context_class = get_context(config.context.name)
-    context = context_class(**config.context.parameters)
-    context.fit(train_df)
-    
-    # Create dataloader
-    collate_fn = context.get_collate_fn() 
-    train_loader = DataLoader(train_dataset, batch_size=config.train.batch_size, shuffle=True, collate_fn=collate_fn)
-
-    # Get encoders: TODO: Get input dim from train_dataset
-    encoder_class = get_encoder(config.encoder.name)
-    x_encoder = encoder_class(input_dim = None, **config.encoder.parameters).to(device)
-    a_encoder = encoder_class(input_dim = context.context_dim, **config.encoder.parameters).to(device)
-
-    # Set optimizers: use adam without scheduler for now
-    optimizer = torch.optim.Adam([x_encoder.parameters(), a_encoder.parameters()], lr=config.train.lr)
-
-    # Loss function
-    loss_class = get_loss(config.losses.name)
-    criterion = loss_class(**config.losses.parameters)
-    
-    # Trainer: use SVDTrainer for testing
-    trainer = SVDTrainer(x_encoder, a_encoder, 
-                optimizer, criterion, train_loader, 
-                config.train.num_epochs,
-                device=device)
-    
-    trainer.train()
-    trainer.save_model(model_save_dir)
-
-    # Test downstream performance
-    """
-    TODO for Hugo: Add linear probe function at here and downstream.linear_probe.py
-    1. Iteratre train dataset and use the x_encoder to extract train features
-    2. Train a linear probe on top of it
-    3. Test the performance on val/test set
-    """
-    print("\n=== Linear Probe Evaluation ===")
-    
-    # 1. Extract features from train dataset using x_encoder
-    print("Extracting features from training data...")
-    train_features, train_targets = extract_features(x_encoder, train_loader, device=device)
-    
-    # 2. Train linear probe on extracted features
-    print("Training linear probe...")
-    probe, results = train_linear_probe(
-        features=train_features,
-        targets=train_targets,
-        task_type="classification",
-        test_size=0.2,
-        val_size=0.2,
-        max_epochs=50,
-        batch_size=128,
-        verbose=False
-    )
-    
-    # 3. Test performance on val/test set
-    print("Linear Probe Results:")
-    print(f"  Test Accuracy: {results['test_metrics']['accuracy']:.4f}")
-    print(f"  Train size: {results['data_splits']['train_size']}")
-    print(f"  Val size: {results['data_splits']['val_size']}")
-    print(f"  Test size: {results['data_splits']['test_size']}")
-    print(f"  Epochs trained: {results['train_history']['epochs_trained']}")
-    
-    # Save probe results
-    probe_results_path = os.path.join(results_dir, "linear_probe_results.json")
-    with open(probe_results_path, 'w') as f:
-        json.dump(results, f, indent=2)
-    print(f"Linear probe results saved to: {probe_results_path}")
+# Helper functions
+def load_cfg(path: str | Path) -> edict:
+    with open(path, 'r') as f:
+        return edict(yaml.safe_load(f))
 
 
+def build_feature_pipeline(fp_cfg: Dict[str, Any]) -> ColumnPipeline:
+    if fp_cfg.get('name', '').lower() == 'identity':
+        return ColumnPipeline()
+    return ColumnPipeline(numeric = fp_cfg.get('numeric', []),
+                          categorical = fp_cfg.get('categorical', []))
+
+
+def train_val_test_split(X: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, ...]:
+    n = len(X)
+    perm = np.random.permutation(n)
+    n_train = int(0.8 * n)
+    n_val   = int(0.9 * n)
+    tr, va, te = perm[:n_train], perm[n_train:n_val], perm[n_val:]
+    return X[tr], y[tr], X[va], y[va], X[te], y[te]
+
+
+# Main
+def main(cfg: edict) -> None:
+    torch.manual_seed(cfg["global"]["seed"])
+    np.random.seed(cfg["global"]["seed"])
+    device = torch.device(cfg["global"]["device"])
+
+    results_dir = Path(cfg["global"]["results_dir"])
+    (results_dir / "models").mkdir(parents = True, exist_ok = True)
+
+    # single tag / group
+    tags: list[str]
+    if 'tag' in cfg.dataset:
+        tags = [cfg.dataset.tag]
+    else:
+        big_yaml = safe_load(open('configs/datasets.yaml'))
+        tags = big_yaml[cfg.dataset.group]
+
+    for tag in tags:
+        print(f'\n--- {tag} ---')
+
+        # load raw
+        X_df, y, meta = load_dataset(tag)
+        if meta['target_type'] in ('classification', 'binary'):
+            le = LabelEncoder()
+            y = le.fit_transform(y)
+
+        meta['path'] = str(Path('data') / tag)  # let split helper locate split file
+
+        Xtr_raw, ytr, Xva_raw, yva, Xte_raw, yte = train_val_test_split(X_df.values, y)
+
+        Xtr_df = pd.DataFrame(Xtr_raw, columns = X_df.columns)
+        Xva_df = pd.DataFrame(Xva_raw, columns = X_df.columns)
+        Xte_df = pd.DataFrame(Xte_raw, columns = X_df.columns)
+
+        # feature pipeline
+        pipe = build_feature_pipeline(cfg.feature_preprocessing)
+        Xtr = pipe.fit_transform(Xtr_df)
+        Xva = pipe.transform(Xva_df)
+        Xte = pipe.transform(Xte_df)
+
+        # context
+        CtxCls = get_context(cfg.context.name)
+        context = CtxCls(**cfg.context.parameters)
+        context.fit(Xtr_df)
+        context_collate = context.get_collate_fn()
+
+        # datasets / loaders
+        train_bs = int(cfg['train']['batch_size'])
+        def make_loader(X: pd.DataFrame, *, shuffle = False):
+            x_t = torch.tensor(X.values, dtype = torch.float32)
+            ds = TensorDataset(x_t)
+
+            def my_collate(batch):
+                # batch -> list[tuple[tensor]]
+                x_batch = torch.stack([b[0] for b in batch], dim = 0)
+                return context_collate(x_batch)
+                    
+            return DataLoader(ds, batch_size = train_bs, shuffle = shuffle, collate_fn = my_collate)
+        
+        train_loader = make_loader(Xtr, shuffle = True)
+
+        # encoders
+        EncCls   = get_encoder(cfg.encoder.name)
+        x_enc = EncCls(input_dim = pipe.output_dim, **cfg.encoder.parameters).to(device)
+        a_enc = EncCls(input_dim = context.context_dim, **cfg.encoder.parameters).to(device)
+
+        # optimizer & loss
+        params = list(x_enc.parameters()) + list(a_enc.parameters())
+        optim = torch.optim.Adam(params, lr = float(cfg['train']['lr']))
+        LossCls = get_loss(cfg.losses.name)
+        criterion = LossCls(**cfg.losses.parameters)
+
+        # trainer
+        trainer = SVDTrainer(x_enc, a_enc, optim, criterion,
+                             train_loader, cfg.train.num_epochs,
+                             device = device)
+        trainer.train()
+        trainer.save_model(results_dir / 'models')
+
+        # frozen probe
+        for p in x_enc.parameters():
+            p.requires_grad_(False)
+
+        print('Extracting train/val/test features...')
+        def feats(X):
+            t = torch.tensor(X.values, dtype=torch.float32, device = device)
+            with torch.no_grad():
+                return x_enc(t).cpu()
+            
+        f_tr, f_va, f_te = feats(Xtr), feats(Xva), feats(Xte)
+
+        probe, probe_res = train_linear_probe(
+            features      = f_tr,
+            targets       = ytr,
+            task_type     = meta['target_type'],
+            X_val         = f_va, y_val = yva,
+            X_test        = f_te, y_test= yte,
+            max_epochs    = int(cfg['probe']['max_epochs']),
+            batch_size    = int(cfg['probe']['batch_size']),
+            early_stopping_patience = int(cfg['probe']['early_stopping_patience']),
+            lr            = float(cfg['probe']['lr']),
+            weight_decay  = float(cfg['probe']['weight_decay'])
+        )
+
+        # summary
+        print('Probe test metrics:', probe_res['test_metrics'])
+
+        out_json = results_dir / f'{tag}__full.json'
+        with open(out_json,'w') as f:
+            json.dump({
+                'meta': meta,
+                'probe': probe_res,
+                'config': cfg,
+            }, f, indent=2)
+        print('Saved:', out_json)
+
+
+# -------------------------------------------------------
 if __name__ == '__main__':
-    #config_path = sys.argv[1]
-    config_path = "config.yaml"
-    config = load_config(config_path)
-    main(config)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('config', nargs='?', default='configs/config.yaml',
+                        help='Path to YAML experiment file')
+    args = parser.parse_args()
+    cfg = load_cfg(args.config)
+    main(cfg)
