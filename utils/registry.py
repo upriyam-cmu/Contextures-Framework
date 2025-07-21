@@ -70,3 +70,13 @@ try:
     import encoders
 except ImportError:
     pass
+
+try:
+    import contexts
+except ImportError:
+    pass
+
+try:
+    import losses
+except ImportError:
+    pass

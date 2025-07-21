@@ -28,6 +28,7 @@ class SVDTrainer:
         self.train_loader = train_loader
         self.num_epochs = num_epochs
         self.device = device
+        self.lr_scheduler = None
 
     def _train_epoch(self, epoch):
         """
@@ -49,7 +50,7 @@ class SVDTrainer:
             loss.backward()            # Backpropagation
             self.optimizer.step()     # Update parameters
 
-            if self.lr_scheduler:
+            if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
             
             for k, v in loss_dict.items():

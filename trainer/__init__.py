@@ -1,1 +1,2 @@
-from trainer import SVDTrainer
+from .trainer import SVDTrainer
+__all__ = ['SVDTrainer']
