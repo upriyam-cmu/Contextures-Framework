@@ -167,6 +167,7 @@ class FlatCosineScheduler:
         # ramps from base to 0 as step increases
         return self.base * 0.5 * (1 + math.cos(math.pi * min(step, self.total_steps) / self.total_steps))
 
+@register_encoder('RealMLP')
 class RealMLP(nn.Module):
     """
     RealMLP: Meta-tuned MLP with advanced tricks (see NeurIPS 2024, 2407.04491)
