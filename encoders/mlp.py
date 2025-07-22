@@ -28,7 +28,16 @@ def _get_act(name: str) -> Callable[[], nn.Module]:
         return nn.GELU
     elif name == 'relu':
         return nn.ReLU
-    return ValueError("Activation must be 'gelu' or 'relu'")
+    elif name == 'leakyrelu':
+        return nn.LeakyReLU
+    elif name == 'tanh':
+        return nn.Tanh
+    elif name == 'sigmoid':
+        return nn.Sigmoid
+    elif name == 'swish':
+        # Swish = x * sigmoid(x); PyTorch 1.7+ has SiLU, which is equivalent
+        return nn.SiLU
+    raise ValueError("Activation must be one of: 'gelu', 'relu', 'leakyrelu', 'tanh', 'sigmoid', 'swish'")
 
 class _Residual(nn.Module):
     # Simple residual wrapper: y = F(x) + P(x)
@@ -43,15 +52,16 @@ class _Residual(nn.Module):
 @register_encoder('MLPEncoder')
 class MLPEncoder(nn.Module):
     """
+    Base MLP Encoder for feature vectors -> d-dim embeddings
+
     Parameters:
      - input_dim: int - size D of pre-processed feature vectors
      - output_dim: int - embedding dimension d
-     - hidden_dims: list[int] - e.g. [64, 64] (default)
-     - activation: {'gelu', 'relu'}
-     - dropout: float in [0, 1)
-     - batchnorm: bool
-     - skip_connections: bool - residual links when shapes allow
-
+     - hidden_dims: list[int] - e.g. [256, 256, 256] (default)
+     - activation: {'gelu', 'relu', 'leakyrelu', 'tanh', 'sigmoid', 'swish'} (default: 'gelu')
+     - dropout: float in [0, 1) (default: 0.15)
+     - batchnorm: bool (default: True)
+     - skip_connections: bool - residual links when shapes allow (default: True)
     """
     def __init__(self, *, input_dim: int, output_dim: int, hidden_dims: Sequence[int] | None = None, 
                  activation: str = 'gelu', dropout: float = 0.15, batchnorm: bool = True,
@@ -59,7 +69,7 @@ class MLPEncoder(nn.Module):
         super().__init__()
 
         self.output_dim: int = output_dim
-        hidden_dims = list(hidden_dims or [64, 64])
+        hidden_dims = list(hidden_dims or [256, 256, 256])
 
         dims = [input_dim] + hidden_dims + [output_dim]
         act_cls = _get_act(activation)
@@ -166,7 +176,7 @@ class FlatCosineScheduler:
     def __call__(self, step):
         # ramps from base to 0 as step increases
         return self.base * 0.5 * (1 + math.cos(math.pi * min(step, self.total_steps) / self.total_steps))
-
+    
 @register_encoder('RealMLP')
 class RealMLP(nn.Module):
     """
