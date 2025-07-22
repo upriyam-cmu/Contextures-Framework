@@ -102,7 +102,7 @@ class SVDLoRA(nn.Module):
                 dot_products = torch.exp(squared_diff / self.temperature) # (N, N, r)
 
             # Compute the dot products for positive pairs
-            sim_pos = digonal(dot_products)  # Similarity of positive pairs, (N,r)
+            sim_pos = diagonal(dot_products)  # Similarity of positive pairs, (N,r)
             sim_pos = sim_pos.mean(dim=1)  # Average over r, resulting in (N,) 
             
             # Compute the dot products for negative pairs
@@ -123,7 +123,7 @@ class SVDLoRA(nn.Module):
         
         return lora_loss, loss_dict
 
-def digonal(tensor: torch.Tensor) -> torch.Tensor:
+def diagonal(tensor: torch.Tensor) -> torch.Tensor:
     """
     If tensor is a 2D matrix of shape (n,n), return the diagonal elements in shape (n,)
     If tensor is a 3D matrix of shape (n, n, r), return the diagonal elements in shape (n, r).
