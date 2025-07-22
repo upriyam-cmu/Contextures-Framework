@@ -31,7 +31,7 @@ train:
 context:
   name: scarf
   parameters:
-    num_contexts: 2
+    num_context_samples: 2
     distribution: uniform
     corruption_rate: 0.2
 

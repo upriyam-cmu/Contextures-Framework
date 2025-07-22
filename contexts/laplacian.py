@@ -36,12 +36,17 @@ def eigh(mat, device):
 
 
 @register_context('laplacian')
+<<<<<<< HEAD
 class Laplacian(Contexts):
     def __init__(self, gamma: float = 1.0, max_rows: int = 1000, device: str = 'cpu', num_contexts: int = 1):
+=======
+class Laplacian:
+    def __init__(self, gamma: float = 1.0, max_rows: int = 1000, device: str = 'cpu', num_context_samples: int = 1):
+>>>>>>> origin/main
         self.gamma = gamma
         self.max_rows = max_rows
         self.device = device
-        self.num_contexts = num_contexts
+        self.num_context_samples = num_context_samples
 
     def fit(self, dataset: DataFrame) -> None:
         X = torch.tensor(dataset.values, dtype=torch.float32, device=self.device) \
@@ -61,6 +66,18 @@ class Laplacian(Contexts):
         # x: (batch_size, num_features)
         # For Laplacian, just repeat the same kernel features for each context (no stochasticity)
         k_feat = self._transform_single(x)  # (batch_size, n_train)
-        # Repeat for num_contexts
-        k_feat_multi = k_feat.unsqueeze(1).expand(-1, self.num_contexts, -1)  # (batch_size, num_contexts, n_train)
+        # Repeat for num_context_samples
+        k_feat_multi = k_feat.unsqueeze(1).expand(-1, self.num_context_samples, -1)  # (batch_size, num_context_samples, n_train)
         return k_feat_multi
+<<<<<<< HEAD
+=======
+
+    def get_collate_fn(self):
+        if self.num_context_samples == 1:
+            def collate_fn(x_batch):
+                return x_batch, self._transform_single(x_batch)
+        else:
+            def collate_fn(x_batch):
+                return x_batch, self._transform_multiple(x_batch)
+        return collate_fn
+>>>>>>> origin/main
