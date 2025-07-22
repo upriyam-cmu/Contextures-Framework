@@ -59,20 +59,6 @@ class SCARF(Contexts):
             self.marginals_high = Normal(self.features_high, std)
         else:
             raise NotImplementedError(f"Unsupported prior distribution: {self.distribution}")
-<<<<<<< HEAD
-=======
-    
-    def get_collate_fn(self):
-        if self.num_context_samples == 1:
-            # a: (batch_size, num_features)
-            def collate_fn(x_batch):
-                return x_batch, self._transform_single(x_batch)
-        else:
-            # a: (batch_size, num_context_samples, num_features)
-            def collate_fn(x_batch):
-                return x_batch, self._transform_multiple(x_batch)
-        return collate_fn
->>>>>>> origin/main
 
     def _sample(self, x: Tensor) -> Tensor:
         """

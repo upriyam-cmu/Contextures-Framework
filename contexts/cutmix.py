@@ -6,13 +6,8 @@ from utils.types import DataFrame
 from contexts.base import Contexts
 
 @register_context('cutmix')
-<<<<<<< HEAD
 class Cutmix(Contexts):
-    def __init__(self, corruption_rate: float = 0.5, num_contexts: int = 1, device: str = 'cpu'):
-=======
-class Cutmix:
     def __init__(self, corruption_rate: float = 0.5, num_context_samples: int = 1, device: str = 'cpu'):
->>>>>>> origin/main
         self.corruption_rate = corruption_rate
         self.num_context_samples = num_context_samples
         self.device = device
@@ -37,14 +32,3 @@ class Cutmix:
         x_cutmix = torch.where(corruption_mask, x_rand, x_expanded)
         return x_cutmix
 
-<<<<<<< HEAD
-=======
-    def get_collate_fn(self):
-        if self.num_context_samples == 1:
-            def collate_fn(x_batch):
-                return x_batch, self._transform_single(x_batch)
-        else:
-            def collate_fn(x_batch):
-                return x_batch, self._transform_multiple(x_batch)
-        return collate_fn
->>>>>>> origin/main
