@@ -1,13 +1,14 @@
 import torch
 from torch import nn
 from typing import Sequence, Union, List, Literal
+import numpy as np
 from torch.nn import functional as F
 
 from utils.registry import register_loss
 
 @register_loss('EVDLoRA')
 class EVDLoRA(nn.Module):
-    """
+    r"""
     LoRA (Low-Rank Approximation) loss implementation.
     Naive version:
     L = -2 E_{a,a' ~ P(a,a')} [\Psi(a)^T \Psi(a')] + E_{a,a' ~ p(a)} [ (\Psi(a)^T \Psi(a') )^2].
@@ -23,24 +24,24 @@ class EVDLoRA(nn.Module):
     def __init__(self, 
                  a_proj: nn.Module = None,
                  exp_parameterization: Literal["inner_product", "squared"] = None,
-                 temparature: float = 1.0,
+                 temperature: float = 1.0,
                  ) -> None:
-        """
+        r"""
         Initialize the LoRA loss module.
         Args:
         - a_proj: a MLP module that further projects contexts a to embeddings. \Psi'(a) = a_proj(\Psi(a))
         - exp_paramerization:  whether to use exponential parameterization. 
-        - temparature: float, temperature for exp_parameterization, default is 1.0.
+        - temperature: float, temperature for exp_parameterization, default is 1.0.
         """
         super(EVDLoRA, self).__init__()
         self.a_proj = a_proj
         self.exp_parameterization = exp_parameterization
-        self.temparature = temparature
+        self.temperature = temperature
 
-    def forward(self, a: torch.Tensor,
+    def forward(self, *args: torch.Tensor,
                 reduction: Literal["mean", "none"] = "mean",
                 ) -> torch.Tensor:
-        """
+        r"""
         Inputs:
         - a: embedding of contexts a, torch tensor of shape (N, r, D), representing single context or r contexts for each input (r >=2)
         
@@ -48,7 +49,15 @@ class EVDLoRA(nn.Module):
         - lora_loss: LoRA loss, torch tensor of shape (N,) or scalar if mean reduction is applied.
         - loss_dict: Dictionary containing verbose information like the loss of the positive pairs and negative pairs.
         """
-        if a_proj is not None:
+        # accept either (a,) for (x, a)
+        if len(args) == 1:
+            a = args[0]
+        elif len(args) == 2:
+            _, a = args
+        else:
+            raise ValueError("LoRA loss expects 1 or 2 tensors, (got %d)" % len(args))
+        
+        if self.a_proj is not None:
             N, r, D = a.shape  # Batch size and embedding dimension
             a = self.a_proj(a.view(N*r, D)).view(N, r, -1)
         N, r, D = a.shape  # Batch size and embedding dimension after projection
@@ -56,13 +65,14 @@ class EVDLoRA(nn.Module):
 
         if self.exp_parameterization is None:
             # Z[i, j, k, l] = A[i,j]^T A[k,l]
-            dot_pr=ducts = np.einsum('ijd,kld->ijkl', a, a) # (N, N, r, r)
+            dot_products = torch.einsum('ijd,kld->ikjl', a, a) # (N, N, r, r)
         elif self.exp_parameterization == "inner_product":
-            dot_products = np.einsum('ijd,kld->ijkl', a, a) / self.temparature  # Shape: (N, N, r, r)
-            dot_products = torch.exp(dot_products) # Shape: (N, N, r, r)
+            sim = torch.einsum('ijd,kld->ikjl', a, a) / self.temperature # Shape: (N, N, r, r)
+            sim_max = sim.detach().max(dim = -1, keepdim = True).values
+            dot_products = torch.exp(sim - sim_max) # Shape: (N, N, r, r)
         elif self.exp_parameterization == "squared":
             # Z[i, j, k, l] = exp(|| A[i,j] - A[k, l] ||^2 / T)
-            squared_diff = ((a[:, :, None, None, :] - a[None, None, :, :, :]) ** 2).sum(dim=-1)  # Shape: (N, N, r, r)
+            squared_diff = ((a[:, :, None, None, :] - a[None, None, :, :, :]) ** 2).sum(dim = -1)  # Shape: (N, N, r, r)
             dot_products = torch.exp(squared_diff / self.temperature) # (N, N, r, r)
 
         # Compute the dot products for positive pairs, dot_product[i,i,j,k] with j != k.
@@ -80,10 +90,10 @@ class EVDLoRA(nn.Module):
         mask_neg = ~torch.eye(N, dtype=torch.bool) # Shape: (N, N)
         sim_neg = dot_products[mask_neg, :, :].view(N, -1) # Shape (N, N-1, r, r) -> (N, (N-1)*r*r)
 
-        sim_neg_square = sim_neg.pow(2)  # Squared similarity of negative pairs (N, (N-1)*r*r) 
+        sim_neg_square = torch.square(sim_neg).clamp(min = 1e-8)  # Squared similarity of negative pairs (N, (N-1)*r*r) 
         sim_neg_square = sim_neg_square.view(N, -1).mean(dim=1)  # (N, (N-1)*r*r)
         
-        lora_loss = - 2 * sim_pos + sim_neg_square
+        lora_loss = -2.0 * sim_pos + sim_neg_square
         mean_sim_pos = sim_pos.mean()
         mean_sim_neg = sim_neg_square.mean()
 

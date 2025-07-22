@@ -1,4 +1,4 @@
-# adapters/multi_to_joint.py
+# contexts/adapters/multi_to_joint.py
 
 """
 Given samples A ~ p(a | x) for each x in a batch, build an empirical

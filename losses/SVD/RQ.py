@@ -4,7 +4,13 @@ from typing import Sequence, Union, List, Literal
 from torch.nn import functional as F
 from utils.registry import register_loss
 
-@register_loss('SVDLoRA')
+def off_diagonal(mat: torch.Tensor) -> torch.Tensor:
+    assert mat.ndim == 2
+    n = mat.size(0)
+    mask = ~torch.eye(n, dtype = torch.bool, device = mat.device)
+    return mat[mask]
+
+@register_loss('SVDRQ')
 class SVDRQ(nn.Module):
     """
     RQ (Rayleigh-Quotient) loss implementation. 
@@ -48,9 +54,9 @@ class SVDRQ(nn.Module):
         - loss_dict: Dictionary containing verbose information, containing the main loss, variance loss, and covariance loss.
         """
         N, D = x.shape  # Batch size and embedding dimension
-        if x_proj is not None:
+        if self.x_proj is not None:
             x = self.x_proj(x)
-        if a_proj is not None:
+        if self.a_proj is not None:
             if a.ndim == 2:
                 a = self.a_proj(a)
             elif a.ndim == 3:
@@ -79,7 +85,7 @@ class SVDRQ(nn.Module):
         RQ_loss = invariance_loss + self.alpha * diagonal_loss + self.beta * off_diagonal_loss
         
         loss_dict = {
-            'train/total_loss': loss.mean().item(),
+            'train/total_loss': RQ_loss.mean().item(),
             'train/invariance_loss': invariance_loss.mean().item(),
             'train/diagonal_loss': diagonal_loss.item(),
             'train/off_diagonal_loss': off_diagonal_loss.item()

@@ -1,4 +1,4 @@
-# adapters/kernel_to_multi.py
+# contexts/adapters/kernel_to_multi.py
 
 """
 Given a kernel object (k_obj) exposing '.compute(X1, X2)' -> (B, N) similarity

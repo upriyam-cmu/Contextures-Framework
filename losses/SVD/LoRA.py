@@ -24,7 +24,7 @@ class SVDLoRA(nn.Module):
                  x_proj: nn.Module = None, 
                  a_proj: nn.Module = None,
                  exp_parameterization: Literal["inner_product", "squared"] = None,
-                 temparature: float = 1.0,
+                 temperature: float = 1.0,
                  ) -> None:
         """
         Initialize the LoRA loss module.
@@ -32,13 +32,13 @@ class SVDLoRA(nn.Module):
         - x_proj: a MLP module that further projects inputs x to embeddings. \Phi'(x) = x_proj(\Phi(x))
         - a_proj: a MLP module that further projects contexts a to embeddings. \Psi'(a) = a_proj(\Psi(a))
         - exp_paramerization:  whether to use exponential parameterization. 
-        - temparature: float, temperature for exp_parameterization, default is 1.0.
+        - temperature: float, temperature for exp_parameterization, default is 1.0.
         """
         super(SVDLoRA, self).__init__()
         self.x_proj = x_proj
         self.a_proj = a_proj
         self.exp_parameterization = exp_parameterization
-        self.temparature = temparature
+        self.temperature = temperature
 
     def forward(self, x: torch.Tensor, a: torch.Tensor,
                 reduction: Literal["mean", "none"] = "mean",
@@ -52,9 +52,10 @@ class SVDLoRA(nn.Module):
         - lora_loss: LoRA loss, torch tensor of shape (N,) or scalar if mean reduction is applied.
         - loss_dict: Dictionary containing verbose information like the loss of the positive pairs and negative pairs.
         """
-        if x_proj is not None:
+        
+        if self.x_proj is not None:
             x = self.x_proj(x)
-        if a_proj is not None:
+        if self.a_proj is not None:
             if a.ndim == 2:
                 a = self.a_proj(a)
             elif a.ndim == 3:
@@ -69,7 +70,7 @@ class SVDLoRA(nn.Module):
             if self.exp_parameterization is None:
                 dot_products = x @ a.T # (N, N)
             elif self.exp_parameterization == "inner_product":
-                dot_products = torch.exp(x @ a.T / self.temparature) # (N, N)
+                dot_products = torch.exp(x @ a.T / self.temperature) # (N, N)
             elif self.exp_parameterization == "squared":
                 # Z[i, j] = exp(|| X[i] - A[j] ||^2 / T)
                 squared_diff = ((x[:, None, :] - a[None, :, :]) ** 2).sum(dim=-1)
@@ -93,7 +94,7 @@ class SVDLoRA(nn.Module):
                 # Z[i, j, k] = X[i]^T A[j, k]
                 dot_products = torch.einsum('id,jkd->ijk', x, a)  # Shape: (N, N, r)
             elif self.exp_parameterization == "inner_product":
-                dot_products = torch.einsum('id,jkd->ijk', x, a) / self.temparature  # Shape: (N, N, r)
+                dot_products = torch.einsum('id,jkd->ijk', x, a) / self.temperature  # Shape: (N, N, r)
                 dot_products = torch.exp(dot_products)
             elif self.exp_parameterization == "squared":
                 # Z[i, j, k] = exp(|| X[i] - A[j, k] ||^2 / T)
