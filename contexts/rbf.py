@@ -3,7 +3,7 @@ from torch import Tensor
 import numpy as np
 from utils.registry import register_context
 from utils.types import DataFrame
-
+from contexts.base import Contexts
 
 def rbf_kernel(x, x_prime, gamma):
     """
@@ -35,7 +35,7 @@ def eigh(mat, device):
 
 
 @register_context('rbf')
-class RBF:
+class RBF(Contexts):
     def __init__(self, gamma: float = 1.0, max_rows: int = 1000, device: str = 'cpu', num_contexts: int = 1):
         self.gamma = gamma
         self.max_rows = max_rows
@@ -56,24 +56,10 @@ class RBF:
         self.largest_eigenval = eigenvals[-1]
         self.context_dim = self.X_train.shape[0]  # For kernel features, output dim = n_train
 
-    def _transform_single(self, x: Tensor) -> Tensor:
-        # x: (batch_size, num_features)
-        x = x / (torch.norm(x, dim=1, keepdim=True) + 1e-8)
-        k_feat = rbf_kernel(x, self.X_train, self.gamma)  # (batch_size, n_train)
-        k_feat = k_feat / (self.largest_eigenval + 1e-8)
-        return k_feat
-
-    def _transform_multiple(self, x: Tensor) -> Tensor:
+    def _sample(self, x: Tensor) -> Tensor:
         # x: (batch_size, num_features)
         k_feat = self._transform_single(x)  # (batch_size, n_train)
         k_feat_multi = k_feat.unsqueeze(1).expand(-1, self.num_contexts, -1)  # (batch_size, num_contexts, n_train)
         return k_feat_multi
 
-    def get_collate_fn(self):
-        if self.num_contexts == 1:
-            def collate_fn(x_batch):
-                return x_batch, self._transform_single(x_batch)
-        else:
-            def collate_fn(x_batch):
-                return x_batch, self._transform_multiple(x_batch)
-        return collate_fn
+

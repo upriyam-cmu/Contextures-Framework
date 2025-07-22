@@ -3,9 +3,10 @@ from torch import Tensor
 import numpy as np
 from utils.registry import register_context
 from utils.types import DataFrame
+from contexts.base import Contexts
 
 @register_context('cutmix')
-class Cutmix:
+class Cutmix(Contexts):
     def __init__(self, corruption_rate: float = 0.5, num_contexts: int = 1, device: str = 'cpu'):
         self.corruption_rate = corruption_rate
         self.num_contexts = num_contexts
@@ -18,17 +19,7 @@ class Cutmix:
         self.n_features = X.shape[1]
         self.n_samples = X.shape[0]
 
-    def _transform_single(self, x: Tensor) -> Tensor:
-        # x: (batch_size, n_features)
-        batch_size, n_features = x.shape
-        # Sample random indices for mixing
-        idx = torch.randint(0, batch_size, (batch_size, n_features), device=x.device)
-        x_rand = x[idx, torch.arange(n_features).unsqueeze(0).expand(batch_size, -1)]
-        corruption_mask = torch.rand(batch_size, n_features, device=x.device) < self.corruption_rate
-        x_cutmix = torch.where(corruption_mask, x_rand, x)
-        return x_cutmix
-
-    def _transform_multiple(self, x: Tensor) -> Tensor:
+    def _sample(self, x: Tensor) -> Tensor:
         # x: (batch_size, n_features)
         batch_size, n_features = x.shape
         r = self.num_contexts
@@ -41,11 +32,3 @@ class Cutmix:
         x_cutmix = torch.where(corruption_mask, x_rand, x_expanded)
         return x_cutmix
 
-    def get_collate_fn(self):
-        if self.num_contexts == 1:
-            def collate_fn(x_batch):
-                return x_batch, self._transform_single(x_batch)
-        else:
-            def collate_fn(x_batch):
-                return x_batch, self._transform_multiple(x_batch)
-        return collate_fn
