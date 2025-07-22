@@ -10,9 +10,10 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from utils.registry import register_context
 from utils.types import DataFrame
+from contexts.base import Contexts
 
 @register_context('scarf')
-class SCARF:
+class SCARF(Contexts):
     """
     SCARF (Self-supervised Contrastive Learning using Random Feature Corruption) knowledge component.
     
@@ -58,6 +59,8 @@ class SCARF:
             self.marginals_high = Normal(self.features_high, std)
         else:
             raise NotImplementedError(f"Unsupported prior distribution: {self.distribution}")
+<<<<<<< HEAD
+=======
     
     def get_collate_fn(self):
         if self.num_context_samples == 1:
@@ -69,38 +72,9 @@ class SCARF:
             def collate_fn(x_batch):
                 return x_batch, self._transform_multiple(x_batch)
         return collate_fn
+>>>>>>> origin/main
 
-    def _transform_single(self, x: Tensor) -> Tensor:
-        """
-        Apply SCARF corruption to input features.
-        
-        Args:
-            x: Input tensor of shape (batch_size, num_features)
-            
-        Returns:
-            corrupted_x where corrupted_x has the same shape as x
-        """
-        batch_size, _ = x.size()
-        
-        # Create corruption mask - corruption_rate of entries will be 1
-        corruption_mask = torch.rand_like(x, device=x.device) < self.corruption_rate
-        
-        # Sample random values based on the distribution
-        if self.distribution in ['uniform', 'gaussian']:
-            x_random = self.marginals.sample(torch.Size((batch_size,))).to(x.device)
-        elif self.distribution == 'bimodal':
-            x_random_low = self.marginals_low.sample(torch.Size((batch_size,))).to(x.device)
-            x_random_high = self.marginals_high.sample(torch.Size((batch_size,))).to(x.device)
-            # Randomly choose between low and high modes
-            mode_choice = torch.rand(batch_size, device=x.device) > 0.5
-            x_random = torch.where(mode_choice.unsqueeze(1), x_random_low, x_random_high)
-        
-        # Apply corruption: replace features where corruption_mask is True
-        x_corrupted = torch.where(corruption_mask, x_random, x)
-        
-        return x_corrupted
-    
-    def _transform_multiple(self, x: Tensor) -> Tensor:
+    def _sample(self, x: Tensor) -> Tensor:
         """
         Apply SCARF corruption to input features.
         Args:

@@ -69,8 +69,6 @@ class SVDTrainer:
         """
         Starts the training process.
 
-        Args:
-            model_save_path (str): Path to save the best performing model.
         """
         print("\nStarting training...")
         for epoch in range(self.num_epochs):
@@ -84,5 +82,31 @@ class SVDTrainer:
         """
         torch.save(self.x_encoder.state_dict(), f"{model_save_dir}/x_encoder.pth")
         torch.save(self.a_encoder.state_dict(), f"{model_save_dir}/a_encoder.pth")        
+    '''
+    def eval(self, Xtr, Xva):# frozen probe
+        self.x_encoder.eval()
+        self.a_encoder.eval()
+        print('Extracting train/val/test features...')
+        def feats(X):
+            t = torch.tensor(X.values, dtype=torch.float32, device = self.device)
+            with torch.no_grad():
+                return self.x_encoder(t).cpu()
+            
+        f_tr, f_va, f_te = feats(Xtr), feats(Xva), feats(Xte)
 
-        
+        probe_kind = cfg['probe']['kind']
+        probe_params = cfg['probe'].get('params', {})
+
+        probe, probe_res = run_probe(
+            kind        = probe_kind,
+            features    = f_tr,
+            targets     = ytr,
+            task_type   = meta['target_type'],
+            X_val       = f_va, y_val = yva,
+            X_test      = f_te, y_test = yte,
+            **probe_params # defined in config
+        )
+
+        # summary
+        print('Probe test metrics:', probe_res['test_metrics'])
+    '''

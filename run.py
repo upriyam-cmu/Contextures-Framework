@@ -97,15 +97,9 @@ def main(cfg: edict) -> None:
         # datasets / loaders
         train_bs = int(cfg['train']['batch_size'])
         def make_loader(X: pd.DataFrame, *, shuffle = False):
-            x_t = torch.tensor(X.values, dtype = torch.float32)
+            x_t = torch.tensor(X.values, dtype = torch.float32).to(device)
             ds = TensorDataset(x_t)
-
-            def my_collate(batch):
-                # batch -> list[tuple[tensor]]
-                x_batch = torch.stack([b[0] for b in batch], dim = 0)
-                return context_collate(x_batch)
-                    
-            return DataLoader(ds, batch_size = train_bs, shuffle = shuffle, collate_fn = my_collate)
+            return DataLoader(ds, batch_size = train_bs, shuffle = shuffle, collate_fn = context_collate)
         
         train_loader = make_loader(Xtr, shuffle = True)
 
