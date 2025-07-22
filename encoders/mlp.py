@@ -109,3 +109,143 @@ class MLPEncoder(nn.Module):
             x = x.view(*orig_shape[:-1], self.output_dim)
 
         return x
+
+# --- Advanced RealMLP Implementation ---
+
+try:
+    from pytabkit.models.sklearn.sklearn_interfaces import RealMLP_TD_Classifier, RealMLP_TD_Regressor
+    PYTABKIT_AVAILABLE = True
+except ImportError:
+    PYTABKIT_AVAILABLE = False
+
+class ScalingLayer(nn.Module):
+    """Learnable diagonal scaling layer (soft feature selection)."""
+    def __init__(self, dim, lr_mult=6.0):
+        super().__init__()
+        self.scale = nn.Parameter(torch.ones(dim))
+        self.lr_mult = lr_mult
+    def forward(self, x):
+        return x * self.scale
+
+class NTKLinear(nn.Linear):
+    """Linear layer with NTK parameterization (weights scaled by 1/sqrt(fan_in))."""
+    def reset_parameters(self):
+        super().reset_parameters()
+        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        with torch.no_grad():
+            self.weight /= math.sqrt(self.in_features)
+        if self.bias is not None:
+            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
+            bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+            nn.init.uniform_(self.bias, -bound, bound)
+
+class ParametricSELU(nn.Module):
+    """SELU-α with learnable α in [0,1]."""
+    def __init__(self, dim):
+        super().__init__()
+        self.alpha = nn.Parameter(torch.zeros(dim))
+    def forward(self, x):
+        alpha = torch.sigmoid(self.alpha)  # constrain to [0,1]
+        return alpha * nn.functional.selu(x) + (1 - alpha) * x
+
+class ParametricMish(nn.Module):
+    """Mish-α with learnable α in [0,1]."""
+    def __init__(self, dim):
+        super().__init__()
+        self.alpha = nn.Parameter(torch.zeros(dim))
+    def forward(self, x):
+        alpha = torch.sigmoid(self.alpha)
+        mish = x * torch.tanh(nn.functional.softplus(x))
+        return alpha * mish + (1 - alpha) * x
+
+class FlatCosineScheduler:
+    """Flat-cosine schedule for dropout/weight decay."""
+    def __init__(self, base, total_steps):
+        self.base = base
+        self.total_steps = total_steps
+    def __call__(self, step):
+        # ramps from base to 0 as step increases
+        return self.base * 0.5 * (1 + math.cos(math.pi * min(step, self.total_steps) / self.total_steps))
+
+class RealMLP(nn.Module):
+    """
+    RealMLP: Meta-tuned MLP with advanced tricks (see NeurIPS 2024, 2407.04491)
+
+    Options:
+        - input_dim: int
+        - output_dim: int
+        - num_layers: int (default 3)
+        - dim_layers: int (default 256)
+        - activation: str (gelu [default], relu, leakyrelu, tanh, swish, selu, mish)
+        - parametric_activation: bool (default False, True for RealMLP tricks)
+        - skip_connections: bool (default True)
+        - batchnorm: bool (default True)
+        - dropout: float (default 0.15)
+        - dropout_schedule: str ("flatcos" or None)
+        - scaling_layer: bool (default True, RealMLP trick)
+        - ntk_param: bool (default True, RealMLP trick)
+        - output_clip: bool (default False for classif, True for regression)
+        - task: str ("classification" or "regression")
+        - optimizer: str ("adamw"), lr, weight_decay, betas, etc.
+    """
+    def __init__(self, *, input_dim, output_dim, num_layers=3, dim_layers=256, activation='gelu',
+                 parametric_activation=False, skip_connections=True, batchnorm=True, dropout=0.15,
+                 dropout_schedule=None, scaling_layer=True, ntk_param=True, output_clip=False,
+                 task='classification'):
+        super().__init__()
+        import math
+        self.output_dim = output_dim
+        self.task = task
+        dims = [input_dim] + [dim_layers] * num_layers + [output_dim]
+        layers = []
+        act = activation.lower()
+        # Scaling layer (RealMLP trick)
+        if scaling_layer:
+            layers.append(ScalingLayer(input_dim))
+        for i in range(num_layers):
+            in_d, out_d = dims[i], dims[i+1]
+            # NTK parameterization
+            Linear = NTKLinear if ntk_param else nn.Linear
+            fc = Linear(in_d, out_d)
+            # Last layer: no BN/activation/dropout
+            if i == num_layers - 1:
+                layers.append(fc)
+                break
+            bn = nn.BatchNorm1d(out_d) if batchnorm else nn.Identity()
+            # Parametric activations (RealMLP trick)
+            if parametric_activation:
+                if task == 'classification' and act == 'selu':
+                    act_layer = ParametricSELU(out_d)
+                elif task == 'regression' and act == 'mish':
+                    act_layer = ParametricMish(out_d)
+                else:
+                    act_layer = _get_act(act)()
+            else:
+                act_layer = _get_act(act)()
+            do = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+            block = nn.Sequential(fc, bn, act_layer, do)
+            if skip_connections:
+                proj = None if in_d == out_d else nn.Linear(in_d, out_d, bias=False)
+                block = _Residual(block, proj)
+            layers.append(block)
+        self.net = nn.Sequential(*layers)
+        self.output_clip = output_clip
+        self.clip_min = None
+        self.clip_max = None
+    def forward(self, x):
+        x = self.net(x)
+        if self.output_clip and self.clip_min is not None and self.clip_max is not None:
+            x = torch.clamp(x, self.clip_min, self.clip_max)
+        return x
+    def set_output_clip(self, y_train):
+        # For regression: set min/max for output clipping
+        self.clip_min = float(np.min(y_train))
+        self.clip_max = float(np.max(y_train))
+
+# --- Factory for RealMLP or pytabkit RealMLP ---
+def get_realmlp(*, input_dim, output_dim, use_pytabkit=False, **kwargs):
+    """Factory: returns RealMLP (native) or pytabkit RealMLP if available and requested."""
+    if use_pytabkit and PYTABKIT_AVAILABLE:
+        # Example: for classification
+        return RealMLP_TD_Classifier(input_dim=input_dim, output_dim=output_dim, **kwargs)
+    return RealMLP(input_dim=input_dim, output_dim=output_dim, **kwargs)
