@@ -15,7 +15,6 @@ class DKLIEP(nn.Module):
     3. Squared exponential parameterization: K(x,a) = \exp(|| \Phi(x) - \Psi(a) ||^2 / T)   
     """
     def __init__(self, 
-                 kernel: nn.Module = None,
                  x_proj: nn.Module = None, 
                  a_proj: nn.Module = None,
                  exp_parameterization: Literal["inner_product", "squared"] = None,
@@ -33,7 +32,6 @@ class DKLIEP(nn.Module):
         - temperature: float, temperature parameter for scaling the kernel values, default is 1.0.
         """
         super(DKLIEP, self).__init__()
-        self.kernel = kernel
         self.x_proj = x_proj
         self.a_proj = a_proj
         self.exp_parameterization = exp_parameterization
