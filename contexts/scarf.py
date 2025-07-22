@@ -19,8 +19,8 @@ class SCARF:
     Implements feature corruption for self-supervised learning by randomly replacing
     features with values sampled from marginal distributions.
     """
-    def __init__(self, num_contexts: int, distribution: str = 'uniform', corruption_rate: float = 0.6):
-        self.num_contexts = num_contexts
+    def __init__(self, num_context_samples: int, distribution: str = 'uniform', corruption_rate: float = 0.6):
+        self.num_context_samples = num_context_samples
         self.distribution = distribution
         self.corruption_rate = corruption_rate
         self.uniform_eps = 1e-6
@@ -60,12 +60,12 @@ class SCARF:
             raise NotImplementedError(f"Unsupported prior distribution: {self.distribution}")
     
     def get_collate_fn(self):
-        if self.num_contexts == 1:
+        if self.num_context_samples == 1:
             # a: (batch_size, num_features)
             def collate_fn(x_batch):
                 return x_batch, self._transform_single(x_batch)
         else:
-            # a: (batch_size, num_contexts, num_features)
+            # a: (batch_size, num_context_samples, num_features)
             def collate_fn(x_batch):
                 return x_batch, self._transform_multiple(x_batch)
         return collate_fn
@@ -106,10 +106,10 @@ class SCARF:
         Args:
             x: Input tensor of shape (batch_size, num_features)
         Returns:
-            corrupted_x: Tensor of shape (batch_size, num_contexts, num_features)
+            corrupted_x: Tensor of shape (batch_size, num_context_samples, num_features)
         """
         batch_size, num_features = x.size()
-        r = self.num_contexts
+        r = self.num_context_samples
         # Create corruption mask for all r contexts in parallel
         corruption_mask = (torch.rand(batch_size, r, num_features, device=x.device) < self.corruption_rate)
         # Sample random values for all r contexts in parallel

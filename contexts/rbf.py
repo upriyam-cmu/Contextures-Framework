@@ -36,11 +36,11 @@ def eigh(mat, device):
 
 @register_context('rbf')
 class RBF:
-    def __init__(self, gamma: float = 1.0, max_rows: int = 1000, device: str = 'cpu', num_contexts: int = 1):
+    def __init__(self, gamma: float = 1.0, max_rows: int = 1000, device: str = 'cpu', num_context_samples: int = 1):
         self.gamma = gamma
         self.max_rows = max_rows
         self.device = device
-        self.num_contexts = num_contexts
+        self.num_context_samples = num_context_samples
 
     def fit(self, dataset: DataFrame) -> None:
         X = torch.tensor(dataset.values, dtype=torch.float32, device=self.device) \
@@ -66,11 +66,11 @@ class RBF:
     def _transform_multiple(self, x: Tensor) -> Tensor:
         # x: (batch_size, num_features)
         k_feat = self._transform_single(x)  # (batch_size, n_train)
-        k_feat_multi = k_feat.unsqueeze(1).expand(-1, self.num_contexts, -1)  # (batch_size, num_contexts, n_train)
+        k_feat_multi = k_feat.unsqueeze(1).expand(-1, self.num_context_samples, -1)  # (batch_size, num_context_samples, n_train)
         return k_feat_multi
 
     def get_collate_fn(self):
-        if self.num_contexts == 1:
+        if self.num_context_samples == 1:
             def collate_fn(x_batch):
                 return x_batch, self._transform_single(x_batch)
         else:

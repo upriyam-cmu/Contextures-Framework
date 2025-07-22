@@ -6,9 +6,9 @@ from utils.types import DataFrame
 
 @register_context('cutmix')
 class Cutmix:
-    def __init__(self, corruption_rate: float = 0.5, num_contexts: int = 1, device: str = 'cpu'):
+    def __init__(self, corruption_rate: float = 0.5, num_context_samples: int = 1, device: str = 'cpu'):
         self.corruption_rate = corruption_rate
-        self.num_contexts = num_contexts
+        self.num_context_samples = num_context_samples
         self.device = device
 
     def fit(self, dataset: DataFrame) -> None:
@@ -31,7 +31,7 @@ class Cutmix:
     def _transform_multiple(self, x: Tensor) -> Tensor:
         # x: (batch_size, n_features)
         batch_size, n_features = x.shape
-        r = self.num_contexts
+        r = self.num_context_samples
         # Sample random indices for all r contexts in parallel
         idx = torch.randint(0, batch_size, (batch_size, r, n_features), device=x.device)
         x_expanded = x.unsqueeze(1).expand(-1, r, -1)  # (batch_size, r, n_features)
@@ -42,7 +42,7 @@ class Cutmix:
         return x_cutmix
 
     def get_collate_fn(self):
-        if self.num_contexts == 1:
+        if self.num_context_samples == 1:
             def collate_fn(x_batch):
                 return x_batch, self._transform_single(x_batch)
         else:
