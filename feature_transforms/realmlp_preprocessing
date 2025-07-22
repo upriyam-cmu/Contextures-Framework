@@ -1,0 +1,121 @@
+"""
+RealMLP Paper Preprocessing Pipeline (Better by Default: Strong Pre-Tuned MLPs...)
+Implements all preprocessing steps described in the RealMLP paper (NeurIPS 2024, 2407.04491).
+
+- Drop rows with missing numerics
+- Categorical split: one-hot for <=8 unique, embedding for >8 (pass through)
+- Binary categories folded to {-1, 1}, missing as 0
+- Robust scaling (IQR or min-max fallback)
+- Smooth clipping to ±3
+- Target standardization for regression
+
+All transformers are scikit-learn style for easy pipeline integration.
+"""
+
+import numpy as np
+import pandas as pd
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils.validation import check_is_fitted
+from sklearn.preprocessing import OneHotEncoder
+
+# 1. Categorical splitter
+class SmallOneHotLargePassthrough(BaseEstimator, TransformerMixin):
+    """
+    One-hot encode categorical columns with <= 8 unique values (not counting NaNs),
+    pass the rest through unchanged (to be embedded by the NN later).
+    Binary columns become a single {-1, +1} column.
+    Missing categories are encoded as 0.
+    """
+    def __init__(self, max_one_hot=8):
+        self.max_one_hot = max_one_hot
+
+    def fit(self, X, y=None):
+        self.small_, self.large_ = [], []
+        for col in X.columns:
+            nunique = X[col].nunique(dropna=True)
+            (self.small_ if nunique <= self.max_one_hot else self.large_).append(col)
+        # one-hot (drop in first binary => {-1,+1} later)
+        drop = 'first' if any(X[c].nunique(dropna=True)==2 for c in self.small_) else None
+        self.ohe_ = OneHotEncoder(handle_unknown='ignore', drop=drop, sparse=False)
+        if self.small_:
+            self.ohe_.fit(X[self.small_].fillna('MISSING'))
+        return self
+
+    def transform(self, X):
+        check_is_fitted(self)
+        out = []
+        if self.small_:
+            small = self.ohe_.transform(X[self.small_].fillna('MISSING'))
+            # fold binary {-1,+1}
+            if self.ohe_.drop_idx_ is not None:
+                small = 2*small - 1          # (0,1) -> (-1,+1)
+            out.append(small)
+        if self.large_:
+            large = X[self.large_].to_numpy()  # untouched, dtype=object
+            out.append(large)
+        if out:
+            return np.hstack(out)
+        else:
+            return np.empty((len(X), 0))
+
+# 2. Robust scale + smooth clip
+class RobustScaleSmoothClip(BaseEstimator, TransformerMixin):
+    """
+    For each feature x:
+      - centre on the median (q_{1/2})
+      - scale by s_j (IQR-based or min-max fall-back)
+      - apply smooth clip f(z) = z / sqrt(1 + (z/3)^2)
+    """
+    def _smooth_clip(self, z):
+        return z / np.sqrt(1 + (z/3)**2)
+
+    def fit(self, X, y=None):
+        X = np.asarray(X, dtype=float)
+        q25, q50, q75 = np.percentile(X, [25, 50, 75], axis=0)
+        q0, q100 = X.min(axis=0), X.max(axis=0)
+        s = np.zeros_like(q50)
+        # case 1: IQR
+        mask_iqr = q75 != q25
+        s[mask_iqr] = 1.0 / (q75[mask_iqr] - q25[mask_iqr])
+        # case 2: min-max
+        mask_mm  = ~mask_iqr & (q100 != q0)
+        s[mask_mm] = 2.0 / (q100[mask_mm] - q0[mask_mm])
+        # case 3: constant column => s stays 0
+        self.q50_, self.s_ = q50, s
+        return self
+
+    def transform(self, X):
+        check_is_fitted(self)
+        X = np.asarray(X, dtype=float)
+        z = (X - self.q50_) * self.s_
+        return self._smooth_clip(z)
+
+# 3. Target standardiser (regression only)
+class TargetStandardizer(BaseEstimator, TransformerMixin):
+    def fit(self, y, *_):
+        self.mu_, self.sigma_ = np.mean(y), np.std(y)
+        return self
+    def transform(self, y):
+        return (y - self.mu_) / self.sigma_
+    def inverse_transform(self, y_scaled):
+        return y_scaled * self.sigma_ + self.mu_
+
+# 4. Pipeline builder
+from sklearn.compose import ColumnTransformer
+
+def build_realmlp_preprocessor(df, cat_cols, num_cols, is_regression=True):
+    """
+    Returns (X_preprocessor, y_preprocessor) for RealMLP paper pipeline.
+    - X_preprocessor: scikit-learn transformer for features
+    - y_preprocessor: target standardizer (regression) or None (classification)
+    """
+    cat_split = SmallOneHotLargePassthrough()
+    num_proc  = RobustScaleSmoothClip()
+    pre = ColumnTransformer([
+        ('cat', cat_split, cat_cols),
+        ('num', num_proc,  num_cols)
+    ], remainder='drop')
+    if is_regression:
+        return pre, TargetStandardizer()
+    else:
+        return pre, None
