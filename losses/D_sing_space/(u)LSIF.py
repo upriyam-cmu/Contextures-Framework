@@ -4,7 +4,7 @@ from typing import Sequence, Union, List, Literal
 from torch.nn import functional as F
 from utils.registry import register_loss
 
-@register_loss('SVDLoRA')
+@register_loss('uLSIF')
 class uLSIF(nn.Module):
     """
     uLSIF is basically LoRA with weight decay (use AdamW) and normalization penalty.
