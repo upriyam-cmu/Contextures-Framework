@@ -16,13 +16,22 @@ class KNNProbe:
     def __init__(self, 
                  task_type: Literal["classification", "regression"] = "classification",
                  n_neighbors: int = 5,
+                 metric: str = "inner_product",
                  **kwargs):
         self.task_type = task_type
         self.n_neighbors = n_neighbors
-        if task_type == "classification":
-            self.model = KNeighborsClassifier(n_neighbors=n_neighbors, **kwargs)
+        self.metric = metric
+        # Map 'inner_product' to a callable for sklearn
+        if metric == "inner_product":
+            def inner_product(x, y):
+                return -np.dot(x, y)  # negative for distance (higher dot = closer)
+            metric_callable = inner_product
         else:
-            self.model = KNeighborsRegressor(n_neighbors=n_neighbors, **kwargs)
+            metric_callable = metric
+        if task_type == "classification":
+            self.model = KNeighborsClassifier(n_neighbors=n_neighbors, metric=metric_callable, **kwargs)
+        else:
+            self.model = KNeighborsRegressor(n_neighbors=n_neighbors, metric=metric_callable, **kwargs)
         self._is_fitted = False
 
     def fit(self, X_train, y_train):
@@ -63,6 +72,7 @@ def train_knn_probe(
     random_state: int = 42,
     X_train=None, y_train=None, X_val=None, y_val=None, X_test=None, y_test=None,
     n_neighbors: int = 5,
+    metric: str = "inner_product",
     **probe_kwargs
 ) -> Tuple[KNNProbe, Dict[str, Any]]:
     """
@@ -110,7 +120,7 @@ def train_knn_probe(
         y_test = targets_np[test_indices]
     
     # Initialize and train probe
-    probe = KNNProbe(task_type=task_type, n_neighbors=n_neighbors, **probe_kwargs)
+    probe = KNNProbe(task_type=task_type, n_neighbors=n_neighbors, metric=metric, **probe_kwargs)
     probe.fit(X_train, y_train)
     
     # Evaluate on test set
