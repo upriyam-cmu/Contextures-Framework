@@ -6,3 +6,5 @@ torch
 tqdm
 pyyaml
 openml
+xgboost
+easydict

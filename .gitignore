@@ -4,7 +4,8 @@ __pycache__/
 *$py.class
 
 # Ignore data directory
-/data/
+/data
+/results
 
 # Ignore Jupyter Notebook checkpoints and related hidden files
 .ipynb_checkpoints/
@@ -24,3 +25,14 @@ __pycache__/
 # OS files (optional)
 .DS_Store
 Thumbs.db
+
+# temp/testing files
+/tmp*
+/temp*
+
+# Python Virtual Environments
+venv
+.venv
+.envrc
+.env
+env
