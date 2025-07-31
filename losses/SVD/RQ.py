@@ -12,7 +12,7 @@ def off_diagonal(mat: torch.Tensor) -> torch.Tensor:
 
 @register_loss('SVDRQ')
 class SVDRQ(nn.Module):
-    """
+    r"""
     RQ (Rayleigh-Quotient) loss implementation. 
     Naive version:
     L =  1/d E_{x,a ~ P(x,a)}[ || \Phi(x) - \Psi(a) ||_2^2 ] 
@@ -26,7 +26,7 @@ class SVDRQ(nn.Module):
                  alpha: float = 10.0,
                  beta: float = 30.0, 
                  ):
-        """
+        r"""
         Initialize the RQ loss module.
         Args:
         - x_proj: a MLP module that further projects inputs x to embeddings. \Phi'(x) = x_proj(\Phi(x))

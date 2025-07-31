@@ -6,7 +6,7 @@ from utils.registry import register_loss
 
 @register_loss('SVDLoRA')
 class SVDLoRA(nn.Module):
-    """
+    r"""
     LoRA (Low-Rank Approximation) loss implementation.
     Naive version:
     L = -2 E_{x,a ~ P(x,a)} [\Phi(x)^T \Psi(a)] + E_{x ~ p(x), a ~ p(a)} [ (\Phi(x)^T \Psi(a) )^2],
@@ -26,7 +26,7 @@ class SVDLoRA(nn.Module):
                  exp_parameterization: Literal["inner_product", "squared"] = None,
                  temperature: float = 1.0,
                  ) -> None:
-        """
+        r"""
         Initialize the LoRA loss module.
         Args:
         - x_proj: a MLP module that further projects inputs x to embeddings. \Phi'(x) = x_proj(\Phi(x))

@@ -6,7 +6,7 @@ from utils.registry import register_loss
 
 @register_loss('EVDRQ')
 class EVDRQ(nn.Module):
-    """
+    r"""
     RQ (Rayleigh-Quotient) loss implementation. 
     Naive version:
     L =  1/d E_{a, a' ~ P(a,a')}[ || \Psi(a) - \Psi(a') ||_2^2 ] 
@@ -19,7 +19,7 @@ class EVDRQ(nn.Module):
                  alpha: float = 10.0,
                  beta: float = 30.0, 
                  ):
-        """
+        r"""
         Initialize the RQ loss module.
         Args:
         - a_proj: a MLP module that further projects contexts a to embeddings. \Psi'(a) = a_proj(\Psi(a))
