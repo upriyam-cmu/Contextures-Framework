@@ -1,0 +1,72 @@
+# Example experiment file
+
+global:
+  seed: 2025
+  device: cpu # 'cpu' or 'cuda'
+  results_dir: results/demo # results
+
+# data
+# - tag : single OpenML tag (e.g. openml__iris__59)
+# - group : name in configs/datasets.yaml (e.g. cls56)
+dataset:
+  tag: openml__iris__59
+  # group: cls56
+
+# feature transforms
+# name: Identity -> no transform
+feature_preprocessing:
+  # name: Identity
+  numeric:
+    - yeo_johnson
+  categorical:
+    - one_hot
+
+# SVDTrainer
+train:
+  num_epochs: 100
+  batch_size: 512
+  lr: 1e-3
+
+# Context (one or several - give a list)
+context:
+  name: scarf
+  parameters:
+    num_context_samples: 2
+    distribution: uniform
+    corruption_rate: 0.2
+
+# Encoder (same MLP for x and a)
+encoder:
+  name: MultiLabelXGBoostEncoder
+  parameters:
+    one_tree_per_target: False
+    num_targets: 64
+    num_rounds: 3  # number of rounds per alternating step
+    max_depth: 7
+    learning_rate: 0.1
+    pred_leaf: True
+    # n_rounds_size_limit: 100
+    # feature_mode: raw
+    # feature_dim: None
+
+
+# Loss for SVDTrainerXGB
+losses:
+  name: SVDLoRA
+  parameters:
+    exp_parameterization: inner_product
+    temperature: 1.0
+
+# probe
+probe:
+  kind: linear
+
+  weight_decay: 1e-4
+  max_iter: 1000
+
+  params:
+    # linear
+
+    # knn
+    n_neighbors: 7
+    metric: cosine
